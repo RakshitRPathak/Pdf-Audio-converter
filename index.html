@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PDF to Audio</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#1c2430; --muted:#66707f; --line:#dfe3ea; --accent:#2563eb; --bad:#b42318; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#12161c; --card:#1a2029; --ink:#e8ecf2; --muted:#98a2b3; --line:#2b3441; --accent:#6ea0ff; --bad:#ff8a80; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.5 system-ui, sans-serif; display:grid; place-items:start center; padding:32px 16px; }
+  main { width:100%; max-width:560px; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:24px; }
+  h1 { font-size:22px; margin:0 0 4px; } p.sub { color:var(--muted); margin:0 0 20px; }
+  #drop { border:2px dashed var(--line); border-radius:12px; padding:28px 12px; text-align:center; cursor:pointer; color:var(--muted); }
+  #drop.over, #drop:focus-visible { border-color:var(--accent); outline:none; } #drop b { color:var(--ink); }
+  .row { display:flex; gap:12px; margin-top:14px; } .row > label { flex:1; font-size:14px; color:var(--muted); }
+  input[type=number], select { width:100%; padding:8px 10px; margin-top:4px; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--ink); font:inherit; }
+  input[type=range] { width:100%; }
+  button { margin-top:18px; width:100%; padding:12px; border:0; border-radius:10px; background:var(--accent); color:#fff; font:inherit; font-weight:600; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:not-allowed; } button.ghost { background:none; color:var(--muted); border:1px solid var(--line); margin-top:8px; }
+  #err { color:var(--bad); margin-top:14px; min-height:1.4em; } #meta { color:var(--muted); font-size:14px; margin-top:14px; }
+  progress { width:100%; height:10px; margin-top:8px; } audio { width:100%; margin-top:14px; }
+  #preview { margin-top:10px; padding:10px 12px; border-left:3px solid var(--line); color:var(--muted); font-size:14px; max-height:120px; overflow:auto; }
+  a.dl { display:inline-block; margin-top:10px; color:var(--accent); } [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>PDF to Audio</h1>
+  <p class="sub">Turn any text-based PDF into a narration you can listen to.</p>
+
+  <div id="drop" tabindex="0" role="button" aria-label="Choose a PDF">
+    <div id="dropText"><b>Drop a PDF here</b> or click to choose</div>
+    <input id="file" type="file" accept="application/pdf,.pdf" hidden>
+  </div>
+
+  <div class="row">
+    <label>First page <input id="first" type="number" min="1" placeholder="1"></label>
+    <label>Last page <input id="last" type="number" min="1" placeholder="end"></label>
+    <label>Voice <select id="voice"></select></label>
+  </div>
+  <label style="display:block;margin-top:14px;font-size:14px;color:var(--muted)">Speed <span id="rateVal">1.0×</span>
+    <input id="rate" type="range" min="0.5" max="2" step="0.1" value="1"></label>
+
+  <button id="go" disabled>Convert to audio</button>
+  <button id="cancel" class="ghost" hidden>Cancel</button>
+  <div id="err" role="alert"></div>
+  <div id="status" hidden>
+    <progress id="bar" value="0" max="1"></progress>
+    <div id="meta"></div>
+  </div>
+  <div id="preview" hidden></div>
+  <div id="result" hidden>
+    <audio id="player" controls preload="metadata"></audio>
+    <a id="download" class="dl" href="#">Download</a>
+  </div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+let file = null, jobId = null, timer = null;
+
+fetch('/api/options').then(r => r.json()).then(o => {
+  $('voice').innerHTML = o.voices.map(v => `<option>${v}</option>`).join('');
+});
+const pick = (f) => {
+  if (!f) return;
+  file = f; $('dropText').innerHTML = `<b>${f.name.replace(/[<>&]/g, '')}</b> (${(f.size / 1048576).toFixed(1)} MB)`; $('go').disabled = false; $('err').textContent = '';
+};
+$('drop').onclick = () => $('file').click();
+$('drop').onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('file').click(); } };
+$('file').onchange = (e) => pick(e.target.files[0]);
+$('drop').ondragover = (e) => { e.preventDefault(); $('drop').classList.add('over'); };
+$('drop').ondragleave = () => $('drop').classList.remove('over');
+$('drop').ondrop = (e) => { e.preventDefault(); $('drop').classList.remove('over'); pick(e.dataTransfer.files[0]); };
+$('rate').oninput = () => $('rateVal').textContent = Number($('rate').value).toFixed(1) + '×';
+
+function reset(msg) {
+  clearInterval(timer); $('go').disabled = !file; $('cancel').hidden = true; $('err').textContent = msg || '';
+  if (msg) $('status').hidden = true;
+}
+$('go').onclick = async () => {
+  reset(); $('result').hidden = true; $('preview').hidden = true; $('go').disabled = true;
+  const fd = new FormData();
+  fd.append('pdf', file); fd.append('voice', $('voice').value); fd.append('rate', $('rate').value);
+  if ($('first').value) fd.append('first_page', $('first').value);
+  if ($('last').value) fd.append('last_page', $('last').value);
+  let res, data;
+  try { res = await fetch('/api/convert', { method: 'POST', body: fd }); data = await res.json(); }
+  catch { return reset('Could not reach the server.'); }
+  if (!res.ok) return reset(data.error ? data.error.message : 'Something went wrong.');
+  jobId = data.job_id;
+  $('preview').textContent = data.preview + (data.characters > 400 ? '…' : ''); $('preview').hidden = false;
+  $('status').hidden = false; $('cancel').hidden = false;
+  $('meta').textContent = `${data.pages} page(s), about ${data.estimated_minutes} min of audio`;
+  poll();
+};
+$('cancel').onclick = async () => { await fetch(`/api/jobs/${jobId}`, { method: 'DELETE' }); reset('Cancelled.'); };
+
+function poll() {
+  clearInterval(timer);
+  timer = setInterval(async () => {
+    let s; try { s = await (await fetch(`/api/jobs/${jobId}`)).json(); } catch { return; }
+    if (s.error && s.status !== 'error') return reset('Job not found (it may have expired).');
+    $('bar').max = s.progress.total || 1; $('bar').value = s.progress.done;
+    if (s.status === 'done') {
+      reset(); $('status').hidden = true;
+      $('player').src = `/api/jobs/${jobId}/audio`; $('download').href = `/api/jobs/${jobId}/audio?download=1`; $('result').hidden = false;
+    } else if (s.status === 'error' || s.status === 'cancelled') reset(s.error || 'Cancelled.');
+  }, 800);
+}
+</script>
+</body>
+</html>

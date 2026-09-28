@@ -1,0 +1,7 @@
+Flask>=3.0
+pypdf>=4.0
+gTTS>=2.5
+google-cloud-texttospeech>=2.16
+gunicorn>=22.0
+pytest>=8.0
+reportlab>=4.0        # only used by the tests to build sample PDFs
