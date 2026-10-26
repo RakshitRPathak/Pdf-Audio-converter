@@ -1,5 +1,7 @@
 # PDF-to-Audio Generator
 
+[![tests](https://github.com/RakshitRPathak/Pdf-Audio-converter/actions/workflows/ci.yml/badge.svg)](https://github.com/RakshitRPathak/Pdf-Audio-converter/actions/workflows/ci.yml)
+
 Upload a text-based PDF, get a narration back. Flask + pypdf + Google Cloud Text-to-Speech
 (with gTTS and an offline eSpeak backend as alternatives). 34 tests, all offline.
 
