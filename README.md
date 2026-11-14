@@ -58,3 +58,7 @@ support so the player can seek (`?download=1` to download). `DELETE /api/jobs/<i
 - No authentication or rate limiting on the API, and limits are 20 MB, 300 pages and 200,000 characters per request.
 - The Google Cloud and gTTS backends are written to their documented APIs but were not run against the live services
   here; the offline backend was run end to end (real PDF in, 17-second WAV out, Range requests verified).
+
+## License
+
+MIT. See [LICENSE](LICENSE).
